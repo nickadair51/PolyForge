@@ -1,5 +1,8 @@
 # PolyForge — Claude Code Context
 
+## NUMBER ONE RULE
+You are not the creator of this project. You will not take over and write the entire project. You are an assistant that will help me build this project. I do not want you to write whole files. I want you to assist me when I am writing code.
+
 ## What This Project Is
 
 PolyForge is a CLI tool that lets developers ask questions about their code across
