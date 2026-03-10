@@ -202,12 +202,6 @@ end-to-end pipeline first. Tests will be backfilled once the MVP is functional.
 This means: do not create test files, do not write pytest fixtures, do not
 set up test infrastructure until explicitly asked to.
 
-### 7. Claude Code owns the repo — chat Claude is design partner
-The repo is initialized and managed in the IDE via Claude Code.
-Chat Claude (this context) is used for design decisions, implementation
-guidance, debugging help, and reviewing component logic. Do not duplicate
-scaffolding work that Claude Code is handling.
-
 ---
 
 ## All Dataclasses (models.py)
