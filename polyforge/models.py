@@ -59,6 +59,7 @@ class LLMResponse:
     modified_files:  dict[str, str]  # { filename: new_content }
     input_tokens:    int
     output_tokens:   int
+    cost:            float           # calculated cost of this response in USD
     latency_ms:      int
     error:           str | None      # populated if success=False
     retry_attempted: bool
