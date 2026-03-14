@@ -1,10 +1,9 @@
 import asyncio, json, os, time
-from polyforge import models
+from polyforge import models, config
 from polyforge.providers.LLMProvider import LLMProvider
 from anthropic import AsyncAnthropic
 
 MODEL = "claude-sonnet-4-5"
-TIME_OUT_SECONDS = 150
 ESTIMATED_MAX_OUTPUT_TOKENS = 8192
 COST_PER_INPUT_TOKEN = 0.000003
 COST_PER_OUTPUT_TOKEN = 0.000015
@@ -20,7 +19,7 @@ class ClaudeProvider(LLMProvider):
         for attempt in range(2): # Only attempt one retry
             start_time = time.perf_counter()
             try:
-                async with asyncio.timeout(TIME_OUT_SECONDS): # Give the LLM 150 seconds to respond before timing out
+                async with asyncio.timeout(config.ExecutionConfig.llm_timeout_seconds): # Give the LLM 150 seconds to respond before timing out
                     llm_response = await self._call_claude_api(request)
                     latency_ms = int((time.perf_counter() - start_time) * 1000)
                     return self._parse_response(llm_response, request, latency_ms, retry_attempted)
