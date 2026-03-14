@@ -32,7 +32,7 @@ _DEFAULT_CONFIG = {
     "workspace": {
         "base_path": str(Path.home() / ".polyforge" / "workspaces"),
         "auto_cleanup": True,
-    },
+    }
 }
 
 
