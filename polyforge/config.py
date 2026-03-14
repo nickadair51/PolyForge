@@ -16,7 +16,7 @@ CONFIG_PATH = CONFIG_DIR / "config.toml"
 
 _DEFAULT_CONFIG = {
     "execution": {
-        "llm_timeout_seconds": 60,
+        "llm_timeout_seconds": 150,
         "docker_timeout_seconds": 120,
         "max_files": 5,
         "cost_warning_threshold": 0.50,
@@ -38,7 +38,7 @@ _DEFAULT_CONFIG = {
 
 @dataclass
 class ExecutionConfig:
-    llm_timeout_seconds:    int   = 60
+    llm_timeout_seconds:    int   = 150
     docker_timeout_seconds: int   = 120
     max_files:              int   = 5
     cost_warning_threshold: float = 0.50
@@ -101,7 +101,7 @@ def load_config() -> PolyForgeConfig:
 
     return PolyForgeConfig(
         execution=ExecutionConfig(
-            llm_timeout_seconds=ex.get("llm_timeout_seconds", 60),
+            llm_timeout_seconds=ex.get("llm_timeout_seconds", 150),
             docker_timeout_seconds=ex.get("docker_timeout_seconds", 120),
             max_files=ex.get("max_files", 5),
             cost_warning_threshold=ex.get("cost_warning_threshold", 0.50),
