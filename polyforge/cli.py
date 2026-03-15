@@ -3,6 +3,7 @@ from pathlib import Path
 from datetime import datetime
 from polyforge.config import load_config
 from polyforge.models import QueryRequest
+from polyforge.repo import ProjectTypeDetector
 
 app = typer.Typer()
 SUPPORTED_MODELS = ["claude", "gpt4o", "gemini"]
@@ -12,14 +13,12 @@ SUPPORTED_MODELS = ["claude", "gpt4o", "gemini"]
 def welcome():
     typer.echo()
     typer.secho("[PolyForge] v1.0", fg=typer.colors.CYAN, bold=True)
-    typer.echo()
-
+    typer.secho("[PolyForge] Please run 'polyforge run --help' for list of parameters", fg=typer.colors.CYAN, bold=True)
 
 @app.command()
 def run(
       repo: str = typer.Option(..., help="Path to local repository"),
-      models: str = typer.Option("claude,gpt4o,gemini", help="Comma-separated list of models"),
-      manual_select: bool = typer.Option(False, help="Skip file selection assistant"),
+      models: str = typer.Option("claude,gpt4o,gemini", help="Comma-separated list of models")
   ):
     if not os.path.isdir(repo):
         typer.secho(f"Error: '{repo}' is not a valid directory.", fg=typer.colors.RED, bold=True, err=True)
@@ -33,31 +32,12 @@ def run(
 
     config = load_config()
 
-    # Scan repo for project type
-    repo_path = os.path.abspath(repo)
+    # Scan repo for project type. The kind of repo is needed to create the docker container
+    repo_path = Path(repo)
     typer.secho(f"[PolyForge] Scanning repository: {repo_path}", fg=typer.colors.CYAN)
 
-    # TODO: Detect project type (repo/detector.py)
-    # TODO: Scan file tree and extract signatures (repo/scanner.py)
-
-    if manual_select:
-        typer.secho("[PolyForge] Manual file selection mode", fg=typer.colors.YELLOW)
-        file_input = typer.prompt("Enter file names (comma separated)")
-        selected_files = [Path(f.strip()) for f in file_input.split(",")]
-        if len(selected_files) > config.execution.max_files:
-            typer.secho(f"Error: At the time being, PolyForge only accepts 5"
-                        "files to minimize costs. Removing the following files from selection:\n", fg=typer.colors.RED, bold=True, err=True)
-            for file_to_be_removed in selected_files[5:]:
-                typer.secho(file_to_be_removed)
-            selected_files = selected_files[:5]
-    else:
-        typer.secho("[PolyForge] Running File Selection Assistant...", fg=typer.colors.CYAN)
-        # TODO: Run FileSelectionAssistant (llm_components/file_selection.py)
-        selected_files = []
-
-    # Confirm with the user that the files selected are the ones to be used in the query
-    # TODO: Display selected files, token estimates, cost estimate
-    typer.confirm("\nConfirm these files?", abort=True)
+    project_type_detector = ProjectTypeDetector(repo_path)
+    project_type = project_type_detector.detect()
 
     typer.echo()
     question = typer.prompt("What is your question?")
@@ -70,6 +50,22 @@ def run(
         query_id=str(uuid.uuid4()),
         timestamp=datetime.now(),
     )
+
+    typer.echo()
+    typer.secho("[PolyForge] Input up to 5 files that relate to your question", fg=typer.colors.YELLOW)
+    typer.echo()
+    file_input = typer.prompt("Enter file names (comma separated)")
+    selected_files = [Path(f.strip()) for f in file_input.split(",")]
+    if len(selected_files) > config.execution.max_files:
+        typer.secho(f"Error: At the time being, PolyForge only accepts 5"
+                    "files to minimize costs. Removing the following files from selection:\n", fg=typer.colors.RED, bold=True, err=True)
+        for file_to_be_removed in selected_files[5:]:
+            typer.secho(file_to_be_removed)
+        selected_files = selected_files[:5]
+
+    # Confirm with the user that the files selected are the ones to be used in the query
+    # TODO: Display selected files, token estimates, cost estimate
+    typer.confirm("\nConfirm these files?", abort=True)
 
     typer.echo()
     typer.secho("[PolyForge] Sending to models...", fg=typer.colors.CYAN)
