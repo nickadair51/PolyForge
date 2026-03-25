@@ -52,7 +52,7 @@ def run(
     )
 
     typer.echo()
-    typer.secho("[PolyForge] Input up to 5 files that relate to your question", fg=typer.colors.YELLOW)
+    typer.secho("[PolyForge] Input up to 5 files (relative path) that relate to your question", fg=typer.colors.YELLOW)
     typer.echo()
     file_input = typer.prompt("Enter file names (comma separated)")
     selected_files = [Path(f.strip()) for f in file_input.split(",")]
@@ -63,8 +63,8 @@ def run(
             typer.secho(file_to_be_removed)
         selected_files = selected_files[:5]
 
-    # Confirm with the user that the files selected are the ones to be used in the query
     # TODO: Display selected files, token estimates, cost estimate
+    #need to build the orchestrator then get cost estimates from it
     typer.confirm("\nConfirm these files?", abort=True)
 
     typer.echo()
