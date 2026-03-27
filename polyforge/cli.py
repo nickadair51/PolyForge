@@ -3,17 +3,11 @@ from pathlib import Path
 from datetime import datetime
 from polyforge.config import load_config
 from polyforge.models import QueryRequest
-from polyforge.repo import ProjectTypeDetector
+from polyforge.repo.ProjectTypeDetector import ProjectTypeDetector
+from polyforge.Orchestrator import Orchestrator
 
 app = typer.Typer()
-SUPPORTED_MODELS = ["claude", "gpt4o", "gemini"]
-
-
-@app.callback(invoke_without_command=True)
-def welcome():
-    typer.echo()
-    typer.secho("[PolyForge] v1.0", fg=typer.colors.CYAN, bold=True)
-    typer.secho("[PolyForge] Please run 'polyforge run --help' for list of parameters", fg=typer.colors.CYAN, bold=True)
+SUPPORTED_MODELS = ["claude", "gpt4o", "openai", "chatgpt", "gemini"]
 
 @app.command()
 def run(
@@ -37,23 +31,16 @@ def run(
     typer.secho(f"[PolyForge] Scanning repository: {repo_path}", fg=typer.colors.CYAN)
 
     project_type_detector = ProjectTypeDetector(repo_path)
-    project_type = project_type_detector.detect()
+    project_type = project_type_detector.detect() #going to be used for docker
+    typer.secho(f"Your repo is of type {project_type}   to be removed later (just used for testing)")
 
     typer.echo()
     question = typer.prompt("What is your question?")
 
-    query_request = QueryRequest(
-        repo_path=repo_path,
-        question=question,
-        selected_files=selected_files,
-        selected_models=selected_models,
-        query_id=str(uuid.uuid4()),
-        timestamp=datetime.now(),
-    )
-
     typer.echo()
     typer.secho("[PolyForge] Input up to 5 files (relative path) that relate to your question", fg=typer.colors.YELLOW)
     typer.echo()
+
     file_input = typer.prompt("Enter file names (comma separated)")
     selected_files = [Path(f.strip()) for f in file_input.split(",")]
     if len(selected_files) > config.execution.max_files:
@@ -65,7 +52,20 @@ def run(
 
     # TODO: Display selected files, token estimates, cost estimate
     #need to build the orchestrator then get cost estimates from it
-    typer.confirm("\nConfirm these files?", abort=True)
+
+    query_request = QueryRequest(
+        repo_path=repo_path,
+        question=question,
+        selected_files=selected_files,
+        selected_models=selected_models,
+        query_id=str(uuid.uuid4()),
+        timestamp=datetime.now(),
+    )
+
+    orchestrator = Orchestrator(query_request)
+
+    cost_of_query = asyncio.run(orchestrator.estimate_cost_of_query())
+    typer.confirm(f"\nThe price of your query is estimated to be {cost_of_query}\nIs this acceptable?", abort=True)
 
     typer.echo()
     typer.secho("[PolyForge] Sending to models...", fg=typer.colors.CYAN)
