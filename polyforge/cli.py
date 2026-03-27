@@ -3,18 +3,11 @@ from pathlib import Path
 from datetime import datetime
 from polyforge.config import load_config
 from polyforge.models import QueryRequest
-from polyforge.repo import ProjectTypeDetector
-from polyforge import Orchestrator
+from polyforge.repo.ProjectTypeDetector import ProjectTypeDetector
+from polyforge.Orchestrator import Orchestrator
 
 app = typer.Typer()
 SUPPORTED_MODELS = ["claude", "gpt4o", "gemini"]
-
-
-@app.callback(invoke_without_command=True)
-def welcome():
-    typer.echo()
-    typer.secho("[PolyForge] v1.0", fg=typer.colors.CYAN, bold=True)
-    typer.secho("[PolyForge] Please run 'polyforge run --help' for list of parameters", fg=typer.colors.CYAN, bold=True)
 
 @app.command()
 def run(
@@ -39,6 +32,7 @@ def run(
 
     project_type_detector = ProjectTypeDetector(repo_path)
     project_type = project_type_detector.detect() #going to be used for docker
+    typer.secho(f"Your repo is of type {project_type}   to be removed later (just used for testing)")
 
     typer.echo()
     question = typer.prompt("What is your question?")
@@ -58,7 +52,6 @@ def run(
 
     # TODO: Display selected files, token estimates, cost estimate
     #need to build the orchestrator then get cost estimates from it
-    typer.confirm("\nConfirm these files?", abort=True)
 
     query_request = QueryRequest(
         repo_path=repo_path,
@@ -71,8 +64,8 @@ def run(
 
     orchestrator = Orchestrator(query_request)
 
-    cost_of_query = orchestrator.estimate_cost_of_query()
-    typer.confirm(f"\nThe price of your query is estimated to be {cost_of_query}\n Is this acceptable?", abort=True)
+    cost_of_query = asyncio.run(orchestrator.estimate_cost_of_query())
+    typer.confirm(f"\nThe price of your query is estimated to be {cost_of_query}\nIs this acceptable?", abort=True)
 
     typer.echo()
     typer.secho("[PolyForge] Sending to models...", fg=typer.colors.CYAN)

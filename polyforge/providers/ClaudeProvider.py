@@ -45,6 +45,7 @@ class ClaudeProvider(LLMProvider):
     async def estimate_cost_of_request(self, request: models.LLMRequest) -> float:
         input_token_count = await self._client.messages.count_tokens(model=MODEL, messages=[request.system_prompt,
                                                                   request.question])
+        print(f"TOKEN COUNT {input_token_count}")
         return (input_token_count * COST_PER_INPUT_TOKEN) + (ESTIMATED_MAX_OUTPUT_TOKENS * COST_PER_OUTPUT_TOKEN)
     
     def calculate_cost_of_response(self, input_tokens: int, output_tokens: int) -> float:

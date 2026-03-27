@@ -1,7 +1,10 @@
 from polyforge.models import QueryRequest, LLMRequest, LLMResponse
-from polyforge.providers import ClaudeProvider, OpenAIProvider, GeminiProvider
+from polyforge.providers.ClaudeProvider import ClaudeProvider
+from polyforge.providers.OpenAIProvider import OpenAIProvider
+from polyforge.providers.GeminiProvider import GeminiProvider
+from polyforge.config import SYSTEM_PROMPT
 from pathlib import Path
-import config, asyncio
+import asyncio
 
 PROVIDER_MAP = {
       "claude": ClaudeProvider,
@@ -17,7 +20,7 @@ class Orchestrator:
               name: PROVIDER_MAP[name]()
               for name in query_request.selected_models
           }            
-        self._create_llm_requests(query_request)
+        self._create_llm_requests()
     
     async def run(self):
         #Todo
@@ -37,7 +40,7 @@ class Orchestrator:
             self._llm_requests[model] = LLMRequest(
                     query_id=self._query_request.query_id,
                     provider=model,
-                    system_prompt=config.SYSTEM_PROMPT,
+                    system_prompt=SYSTEM_PROMPT,
                     file_contents=self._gather_file_contents(),
                     question=self._query_request.question
                 )
@@ -46,5 +49,8 @@ class Orchestrator:
         file_contents = {}
         for file_path in self._query_request.selected_files:
             full_path = Path(self._query_request.repo_path) / file_path
+            if not full_path.exists():
+                print("File does not exist. Exiting")
+                exit(1) 
             file_contents[str(file_path)] = full_path.read_text()
         return file_contents
