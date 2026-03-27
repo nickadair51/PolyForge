@@ -10,6 +10,8 @@ PROVIDER_MAP = {
       "claude": ClaudeProvider,
       "gpt4o": OpenAIProvider,
       "gemini": GeminiProvider,
+      "chatgpt": OpenAIProvider,
+      "openai": OpenAIProvider
   }
 
 class Orchestrator:

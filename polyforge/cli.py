@@ -7,7 +7,7 @@ from polyforge.repo.ProjectTypeDetector import ProjectTypeDetector
 from polyforge.Orchestrator import Orchestrator
 
 app = typer.Typer()
-SUPPORTED_MODELS = ["claude", "gpt4o", "gemini"]
+SUPPORTED_MODELS = ["claude", "gpt4o", "openai", "chatgpt", "gemini"]
 
 @app.command()
 def run(
