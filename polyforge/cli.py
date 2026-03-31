@@ -50,9 +50,6 @@ def run(
             typer.secho(file_to_be_removed)
         selected_files = selected_files[:5]
 
-    # TODO: Display selected files, token estimates, cost estimate
-    #need to build the orchestrator then get cost estimates from it
-
     query_request = QueryRequest(
         repo_path=repo_path,
         question=question,
