@@ -1,7 +1,8 @@
-from polyforge.models import QueryRequest, LLMRequest, LLMResponse
+from polyforge.models import QueryRequest, LLMRequest, LLMResponse, RepoSnapshot
 from polyforge.providers.ClaudeProvider import ClaudeProvider
 from polyforge.providers.OpenAIProvider import OpenAIProvider
 from polyforge.providers.GeminiProvider import GeminiProvider
+from polyforge.repo.RepoManager import RepoManager
 from polyforge.config import SYSTEM_PROMPT
 from pathlib import Path
 import asyncio
@@ -15,18 +16,52 @@ PROVIDER_MAP = {
   }
 
 class Orchestrator:
-    def __init__(self, query_request: QueryRequest):
+    def __init__(self, query_request: QueryRequest, workspace_base: str, project_type: str):
         self._query_request = query_request
+        self._project_type = project_type
         self._llm_requests = {}
         self._providers = {
               name: PROVIDER_MAP[name]()
               for name in query_request.selected_models
-          }            
+          }
+        self._repo_manager = RepoManager(
+            repo_path=query_request.repo_path,
+            workspace_base=workspace_base,
+            query_id=query_request.query_id,
+        )
         self._create_llm_requests()
     
     async def run(self):
-        #Todo
-        pass
+        try:
+            # Fan-out: query all providers in parallel
+            responses: list[LLMResponse] = await asyncio.gather(*[
+                self._providers[model].query_llm(self._llm_requests[model])
+                for model in self._query_request.selected_models
+            ], return_exceptions=True)
+
+            # Separate successful responses from failures
+            llm_responses = []
+            for r in responses:
+                if isinstance(r, Exception):
+                    # gather with return_exceptions=True can return exceptions
+                    # providers should never raise, but handle it defensively
+                    continue
+                llm_responses.append(r)
+
+            successful = [r for r in llm_responses if r.success]
+
+            # Create snapshots and apply patches for each successful response
+            snapshots: list[RepoSnapshot] = [
+                self._repo_manager.build_repo_snapshot(r, self._project_type)
+                for r in successful
+            ]
+
+            # TODO: Fan-out Docker execution on each snapshot
+            # TODO: Synthesis layer
+            # TODO: Assemble and return FinalResult
+
+        finally:
+            self._repo_manager.cleanup()
 
     async def estimate_cost_of_query(self) -> float:
       costs = await asyncio.gather(*[
