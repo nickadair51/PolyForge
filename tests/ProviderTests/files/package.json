@@ -1,0 +1,14 @@
+{
+  "name": "polyforge-test-app",
+  "version": "1.0.0",
+  "description": "Simple Node.js app for testing PolyForge pipeline",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "jest --coverage"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "jest": "^29.0.0"
+  }
+}
