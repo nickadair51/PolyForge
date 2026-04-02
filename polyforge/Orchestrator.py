@@ -1,9 +1,10 @@
-from polyforge.models import QueryRequest, LLMRequest, LLMResponse, RepoSnapshot
+from polyforge.models import QueryRequest, LLMRequest, LLMResponse, RepoSnapshot, ExecutionResult
 from polyforge.providers.ClaudeProvider import ClaudeProvider
 from polyforge.providers.OpenAIProvider import OpenAIProvider
 from polyforge.providers.GeminiProvider import GeminiProvider
 from polyforge.repo.RepoManager import RepoManager
-from polyforge.config import SYSTEM_PROMPT
+from polyforge.docker.executor import DockerExecutor
+from polyforge.config import SYSTEM_PROMPT, PolyForgeConfig
 from pathlib import Path
 import asyncio
 
@@ -16,7 +17,7 @@ PROVIDER_MAP = {
   }
 
 class Orchestrator:
-    def __init__(self, query_request: QueryRequest, workspace_base: str, project_type: str):
+    def __init__(self, query_request: QueryRequest, config: PolyForgeConfig, project_type: str):
         self._query_request = query_request
         self._project_type = project_type
         self._llm_requests = {}
@@ -26,9 +27,10 @@ class Orchestrator:
           }
         self._repo_manager = RepoManager(
             repo_path=query_request.repo_path,
-            workspace_base=workspace_base,
+            workspace_base=config.workspace.base_path,
             query_id=query_request.query_id,
         )
+        self._docker_executor = DockerExecutor(config)
         self._create_llm_requests()
     
     async def run(self):
@@ -56,7 +58,15 @@ class Orchestrator:
                 for r in successful
             ]
 
-            # TODO: Fan-out Docker execution on each snapshot
+            # Fan-out: run Docker containers in parallel
+            execution_results: list[ExecutionResult] = await asyncio.gather(*[
+                self._docker_executor.execute(snapshot)
+                for snapshot in snapshots
+            ], return_exceptions=True)
+
+            # Filter out any exceptions from gather
+            exec_results = [r for r in execution_results if isinstance(r, ExecutionResult)]
+
             # TODO: Synthesis layer
             # TODO: Assemble and return FinalResult
 

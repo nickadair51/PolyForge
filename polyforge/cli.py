@@ -59,7 +59,7 @@ def run(
         timestamp=datetime.now(),
     )
 
-    orchestrator = Orchestrator(query_request, config.workspace.base_path, project_type)
+    orchestrator = Orchestrator(query_request, config, project_type)
 
     cost_of_query = asyncio.run(orchestrator.estimate_cost_of_query())
     typer.confirm(f"\nThe price of your query is estimated to be {cost_of_query}\nIs this acceptable?", abort=True)
