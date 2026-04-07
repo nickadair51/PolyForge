@@ -35,11 +35,9 @@ class Orchestrator:
     
     async def run(self) -> tuple[list[LLMResponse], list[ExecutionResult]]:
         try:
-            # Fan-out: query all providers in parall
-            # el
+            # Fan-out: query all providers in parallel
             responses: list[LLMResponse] = await asyncio.gather(*[
-                self._providers[model].query
-                _llm(self._llm_requests[model])
+                self._providers[model].query_llm(self._llm_requests[model])
                 for model in self._query_request.selected_models
             ], return_exceptions=True)
 
