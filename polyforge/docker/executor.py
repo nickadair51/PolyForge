@@ -1,5 +1,6 @@
 import time
 import docker
+import docker.errors
 from polyforge.models import RepoSnapshot, ExecutionResult
 from polyforge.config import PolyForgeConfig
 
@@ -16,13 +17,22 @@ DOCKER_PROFILES = {
 
 class DockerExecutor:
     def __init__(self, config: PolyForgeConfig):
-        self._client = docker.from_env()
+        self._docker_error: str | None = None
+        try:
+            self._client = docker.from_env()
+            self._client.ping()
+        except docker.errors.DockerException as e:
+            self._client = None
+            self._docker_error = str(e)
         self._timeout = config.execution.docker_timeout_seconds
         self._memory_limit = config.docker.memory_limit
         self._nano_cpus = config.docker.cpu_cores * 1_000_000_000
 
     async def execute(self, snapshot: RepoSnapshot) -> ExecutionResult:
         """Run the snapshot in a Docker container and capture results."""
+        if self._client is None:
+            return self._error_result(snapshot, f"Docker unavailable: {self._docker_error}")
+
         profile = DOCKER_PROFILES.get(snapshot.project_type)
         if not profile:
             return self._error_result(snapshot, f"No Docker profile for project type: {snapshot.project_type}")
