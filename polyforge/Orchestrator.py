@@ -33,11 +33,13 @@ class Orchestrator:
         self._docker_executor = DockerExecutor(config)
         self._create_llm_requests()
     
-    async def run(self):
+    async def run(self) -> tuple[list[LLMResponse], list[ExecutionResult]]:
         try:
-            # Fan-out: query all providers in parallel
+            # Fan-out: query all providers in parall
+            # el
             responses: list[LLMResponse] = await asyncio.gather(*[
-                self._providers[model].query_llm(self._llm_requests[model])
+                self._providers[model].query
+                _llm(self._llm_requests[model])
                 for model in self._query_request.selected_models
             ], return_exceptions=True)
 
@@ -69,6 +71,8 @@ class Orchestrator:
 
             # TODO: Synthesis layer
             # TODO: Assemble and return FinalResult
+
+            return llm_responses, exec_results
 
         finally:
             self._repo_manager.cleanup()
