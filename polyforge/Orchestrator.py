@@ -98,7 +98,7 @@ class Orchestrator:
         for file_path in self._query_request.selected_files:
             full_path = Path(self._query_request.repo_path) / file_path
             if not full_path.exists():
-                print("File does not exist. Exiting")
-                exit(1) 
+                print(f"File {file_path} does not exist. Skipping incorrect file.") 
+                continue
             file_contents[str(file_path)] = full_path.read_text()
         return file_contents
