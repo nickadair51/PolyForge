@@ -41,7 +41,7 @@ def run(
     typer.secho("[PolyForge] Input up to 5 files (relative path) that relate to your question", fg=typer.colors.YELLOW)
     typer.echo()
 
-    file_input = typer.prompt("Enter file names (comma separated)")
+    file_input = typer.prompt("Enter file (must be full file path) names (comma separated)")
     selected_files = [Path(f.strip()) for f in file_input.split(",")]
     if len(selected_files) > config.execution.max_files:
         typer.secho(f"Error: At the time being, PolyForge only accepts 5"
@@ -62,7 +62,7 @@ def run(
     orchestrator = Orchestrator(query_request, config, project_type)
 
     cost_of_query = asyncio.run(orchestrator.estimate_cost_of_query())
-    typer.confirm(f"\nThe price of your query is estimated to be {cost_of_query}\nIs this acceptable?", abort=True)
+    typer.confirm(f"\nThe price of your query is estimated to be {cost_of_query:.2f}\nIs this acceptable?", abort=True)
 
     typer.echo()
     typer.secho("[PolyForge] Sending to models...", fg=typer.colors.CYAN)
