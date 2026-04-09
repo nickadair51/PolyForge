@@ -90,10 +90,14 @@ class GeminiProvider(LLMProvider):
 
     def _parse_modified_files(self, raw_text: str) -> tuple[dict[str, str], str | None]:
         try:
-            data = json.loads(raw_text.strip())
-            modified_files = data.get("modified_files", {})
-            if not isinstance(modified_files, dict):
+          text = raw_text.strip()
+          if text.startswith("```"):
+              text = text.split("\n", 1)[1]       # drop the ```json line
+              text = text.rsplit("```", 1)[0]     # drop the trailing ```
+          data = json.loads(text.strip())
+          modified_files = data.get("modified_files", {})
+          if not isinstance(modified_files, dict):
                 return {}, "Response 'modified_files' is not a dict"
-            return modified_files, None
+          return modified_files, None
         except json.JSONDecodeError as e:
             return {}, f"Failed to parse JSON response: {e}"

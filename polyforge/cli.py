@@ -41,7 +41,7 @@ def run(
     typer.secho("[PolyForge] Input up to 5 files (relative path) that relate to your question", fg=typer.colors.YELLOW)
     typer.echo()
 
-    file_input = typer.prompt("Enter file names (comma separated)")
+    file_input = typer.prompt("Enter file (must be full file path) names (comma separated)")
     selected_files = [Path(f.strip()) for f in file_input.split(",")]
     if len(selected_files) > config.execution.max_files:
         typer.secho(f"Error: At the time being, PolyForge only accepts 5"
@@ -62,16 +62,34 @@ def run(
     orchestrator = Orchestrator(query_request, config, project_type)
 
     cost_of_query = asyncio.run(orchestrator.estimate_cost_of_query())
-    typer.confirm(f"\nThe price of your query is estimated to be {cost_of_query}\nIs this acceptable?", abort=True)
+    typer.confirm(f"\nThe price of your query is estimated to be {cost_of_query:.2f}\nIs this acceptable?", abort=True)
 
     typer.echo()
     typer.secho("[PolyForge] Sending to models...", fg=typer.colors.CYAN)
 
-    # TODO: Hand off to orchestrator
-    # result = asyncio.run(orchestrator.run(query_request, config))
+    llm_responses, exec_results = asyncio.run(orchestrator.run())
 
-    # TODO: Render results
-    # renderer.display(result)
+    typer.echo()
+    for resp in llm_responses:
+        typer.secho(f"\n--- {resp.provider} (LLM) ---", fg=typer.colors.CYAN, bold=True)
+        typer.echo(f"  Success: {resp.success}")
+        typer.echo(f"  Latency: {resp.latency_ms}ms")
+        typer.echo(f"  Cost: ${resp.cost:.4f}")
+        if resp.error:
+            typer.secho(f"  Error: {resp.error}", fg=typer.colors.RED)
+
+    for result in exec_results:
+        typer.secho(f"\n--- {result.provider} (Docker) ---", fg=typer.colors.CYAN, bold=True)
+        typer.echo(f"  Success: {result.success}")
+        typer.echo(f"  Exit code: {result.exit_code}")
+        typer.echo(f"  Runtime: {result.runtime_ms}ms")
+        typer.echo(f"  Timed out: {result.timed_out}")
+        if result.error:
+            typer.secho(f"  Error: {result.error}", fg=typer.colors.RED)
+        if result.stdout:
+            typer.echo(f"  Stdout:\n{result.stdout[:2000]}")
+        if result.stderr:
+            typer.echo(f"  Stderr:\n{result.stderr[:2000]}")
 
     typer.echo()
     typer.secho("[PolyForge] Done.", fg=typer.colors.GREEN, bold=True)

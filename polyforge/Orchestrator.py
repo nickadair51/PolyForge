@@ -33,7 +33,7 @@ class Orchestrator:
         self._docker_executor = DockerExecutor(config)
         self._create_llm_requests()
     
-    async def run(self):
+    async def run(self) -> tuple[list[LLMResponse], list[ExecutionResult]]:
         try:
             # Fan-out: query all providers in parallel
             responses: list[LLMResponse] = await asyncio.gather(*[
@@ -70,6 +70,8 @@ class Orchestrator:
             # TODO: Synthesis layer
             # TODO: Assemble and return FinalResult
 
+            return llm_responses, exec_results
+
         finally:
             self._repo_manager.cleanup()
 
@@ -96,7 +98,7 @@ class Orchestrator:
         for file_path in self._query_request.selected_files:
             full_path = Path(self._query_request.repo_path) / file_path
             if not full_path.exists():
-                print("File does not exist. Exiting")
-                exit(1) 
+                print(f"File {file_path} does not exist. Skipping incorrect file.") 
+                continue
             file_contents[str(file_path)] = full_path.read_text()
         return file_contents
