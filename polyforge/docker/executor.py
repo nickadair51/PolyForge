@@ -1,5 +1,5 @@
 import time
-import docker
+import docker, asyncio
 import docker.errors
 from polyforge.models import RepoSnapshot, ExecutionResult
 from polyforge.config import PolyForgeConfig
@@ -18,13 +18,13 @@ DOCKER_PROFILES = {
 class DockerExecutor:
     def __init__(self, config: PolyForgeConfig):
         self._docker_error: str | None = None
+        self._timeout = config.execution.docker_timeout_seconds
         try:
-            self._client = docker.from_env()
+            self._client = docker.from_env(timeout=self._timeout)
             self._client.ping()
         except docker.errors.DockerException as e:
             self._client = None
             self._docker_error = str(e)
-        self._timeout = config.execution.docker_timeout_seconds
         self._memory_limit = config.docker.memory_limit
         self._nano_cpus = config.docker.cpu_cores * 1_000_000_000
 
@@ -53,11 +53,42 @@ class DockerExecutor:
                 detach=True,
             )
 
-            result = container.wait(timeout=self._timeout)
+            # Poll container status instead of long-polling wait()
+            deadline = time.perf_counter() + self._timeout
+            timed_out = False
+
+            while time.perf_counter() < deadline:
+                container.reload()
+                if container.status in ("exited", "dead"):
+                    break
+                await asyncio.sleep(2)
+            else:
+                timed_out = True
+                container.kill()
+
             runtime_ms = int((time.perf_counter() - start_time) * 1000)
 
             stdout = container.logs(stdout=True, stderr=False).decode(errors="replace")
             stderr = container.logs(stdout=False, stderr=True).decode(errors="replace")
+
+            if timed_out:
+                return ExecutionResult(
+                    query_id=snapshot.query_id,
+                    provider=snapshot.provider,
+                    success=False,
+                    build_passed=False,
+                    tests_passed=0,
+                    tests_failed=0,
+                    tests_errored=0,
+                    exit_code=-1,
+                    stdout=stdout,
+                    stderr=stderr,
+                    runtime_ms=runtime_ms,
+                    timed_out=True,
+                    error=f"Container timed out after {self._timeout}s",
+                )
+
+            result = container.wait(timeout=5)
             exit_code = result.get("StatusCode", -1)
 
             return ExecutionResult(
