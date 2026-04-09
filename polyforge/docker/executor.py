@@ -47,7 +47,7 @@ class DockerExecutor:
                 command=["sh", "-c", command],
                 volumes={snapshot.snapshot_path: {"bind": "/workspace", "mode": "rw"}},
                 working_dir="/workspace",
-                network_disabled=True,
+                network_disabled=False,
                 mem_limit=self._memory_limit,
                 nano_cpus=self._nano_cpus,
                 detach=True,
