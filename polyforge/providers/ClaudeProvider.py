@@ -96,10 +96,20 @@ class ClaudeProvider(LLMProvider):
     def _parse_modified_files(self, raw_text: str) -> tuple[dict[str, str], str | None]:
         try:
           text = raw_text.strip()
-          if text.startswith("```"):
-              text = text.split("\n", 1)[1]       # drop the ```json line
-              text = text.rsplit("```", 1)[0]     # drop the trailing ```
-          data = json.loads(text.strip())
+          # Try direct JSON parse first (clean response)
+          try:
+              data = json.loads(text)
+          except json.JSONDecodeError:
+              # Extract JSON from markdown code fence (```json ... ```)
+              fence_start = text.find("```")
+              if fence_start == -1:
+                  return {}, "No JSON or code fence found in response"
+              # Skip past the opening ``` and optional language tag
+              content_start = text.index("\n", fence_start) + 1
+              fence_end = text.find("```", content_start)
+              if fence_end == -1:
+                  return {}, "Unclosed code fence in response"
+              data = json.loads(text[content_start:fence_end].strip())
           modified_files = data.get("modified_files", {})
           if not isinstance(modified_files, dict):
                 return {}, "Response 'modified_files' is not a dict"
