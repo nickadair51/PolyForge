@@ -6,6 +6,7 @@ No shared mutable state. Data flows forward only — never backwards.
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 
 
 # ---------------------------------------------------------------------------
@@ -22,6 +23,16 @@ class UnknownProjectTypeError(PolyForgeError):
 
 class NoTestCommandError(PolyForgeError):
     """Raised when a project has no runnable test command."""
+
+
+# ---------------------------------------------------------------------------
+# Blind keys for synthesis — hides provider identity from the evaluator
+# ---------------------------------------------------------------------------
+
+class SolutionKey(Enum):
+    SOLUTION_A = "Solution A"
+    SOLUTION_B = "Solution B"
+    SOLUTION_C = "Solution C"
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +112,8 @@ class SynthesisResult:
     quality_warnings:     list[str]
     failure_analysis:     str | None  # populated when no solution passes
     closest_provider:     str | None  # best failed attempt
+    solution_rankings:    list[str]   # ordered best to worst (provider names)
+    synthesis_cost:       float       # cost of the synthesis LLM call in USD
 
 
 @dataclass
