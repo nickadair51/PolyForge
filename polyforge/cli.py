@@ -12,7 +12,8 @@ SUPPORTED_MODELS = ["claude", "gpt4o", "openai", "chatgpt", "gemini"]
 @app.command()
 def run(
       repo: str = typer.Option(..., help="Path to local repository"),
-      models: str = typer.Option("claude,gpt4o,gemini", help="Comma-separated list of models")
+      models: str = typer.Option("claude,gpt4o,gemini", help="Comma-separated list of models"),
+      verbose: bool = typer.Option(False, "--verbose", "-v", help="Show full Docker stdout/stderr output")
   ):
     if not os.path.isdir(repo):
         typer.secho(f"Error: '{repo}' is not a valid directory.", fg=typer.colors.RED, bold=True, err=True)
@@ -67,7 +68,7 @@ def run(
     typer.echo()
     typer.secho("[PolyForge] Sending to models...", fg=typer.colors.CYAN)
 
-    llm_responses, exec_results = asyncio.run(orchestrator.run())
+    llm_responses, exec_results, synthesis = asyncio.run(orchestrator.run())
 
     typer.echo()
     for resp in llm_responses:
@@ -86,10 +87,25 @@ def run(
         typer.echo(f"  Timed out: {result.timed_out}")
         if result.error:
             typer.secho(f"  Error: {result.error}", fg=typer.colors.RED)
-        if result.stdout:
-            typer.echo(f"  Stdout:\n{result.stdout[:2000]}")
-        if result.stderr:
-            typer.echo(f"  Stderr:\n{result.stderr[:2000]}")
+        if verbose:
+            if result.stdout:
+                typer.echo(f"  Stdout:\n{result.stdout[:2000]}")
+            if result.stderr:
+                typer.echo(f"  Stderr:\n{result.stderr[:2000]}")
+
+    typer.echo()
+    typer.secho("--- Synthesis ---", fg=typer.colors.YELLOW, bold=True)
+    if synthesis.recommended_provider:
+        typer.echo(f"  Recommended: {synthesis.recommended_provider}")
+    typer.echo(f"  Justification: {synthesis.justification}")
+    if synthesis.solution_rankings:
+        typer.echo(f"  Rankings: {' > '.join(synthesis.solution_rankings)}")
+    if synthesis.quality_warnings:
+        for w in synthesis.quality_warnings:
+            typer.secho(f"  Warning: {w}", fg=typer.colors.YELLOW)
+    if synthesis.failure_analysis:
+        typer.secho(f"  Failure analysis: {synthesis.failure_analysis}", fg=typer.colors.RED)
+    typer.echo(f"  Synthesis cost: ${synthesis.synthesis_cost:.4f}")
 
     typer.echo()
     typer.secho("[PolyForge] Done.", fg=typer.colors.GREEN, bold=True)
