@@ -1,7 +1,7 @@
 # PolyForge — Claude Code Context
 
 ## NUMBER ONE RULE
-You are not the creator of this project. You will not take over and write the entire project. You are an assistant that will help me build this project. I do not want you to write whole files. I want you to assist me when I am writing code. If i want code written i will ask. 
+You are not the creator of this project. You will not take over and write the entire project. You are an assistant that will help me build this project. I do not want you to write whole files. I want you to assist me when I am writing code. If i want code written i will ask.
 
 ## What This Project Is
 
@@ -11,66 +11,53 @@ parallel, applies each model's suggested changes to an isolated copy of the repo
 runs the modified code in a Docker container per model, and returns a ranked
 comparison of results alongside a synthesis recommendation.
 
-**Stack:** Python 3.11+, asyncio, Docker SDK, Typer CLI, tiktoken  
-**Status:** MVP v1.0 in active development  
-**Docs:** See requirements doc and architecture doc in /docs for full design detail
+**Stack:** Python 3.11+, asyncio, Docker SDK, Typer CLI, tiktoken
+**Status:** MVP v1.0 complete
 
 ---
 
-## Project Structure
+## Project Structure (Actual)
 
 ```
-polyforge/
+PolyForge/
 ├── CLAUDE.md                        # this file
 ├── pyproject.toml                   # package config and dependencies
 ├── README.md
 ├── docs/
-│   ├── PolyForge_Requirements_v1.docx
-│   └── PolyForge_Architecture_v1.docx
+│   ├── PolyForge_Requirements_v1.md
+│   └── PolyForge_Architecture_v1.md
 ├── polyforge/
 │   ├── __init__.py
 │   ├── cli.py                       # Typer CLI entry point
-│   ├── orchestrator.py              # pipeline coordinator
+│   ├── Orchestrator.py              # pipeline coordinator
 │   ├── models.py                    # ALL dataclasses live here
 │   ├── config.py                    # config loading (~/.polyforge/config.toml)
 │   │
 │   ├── providers/                   # LLM Provider Layer
 │   │   ├── __init__.py
-│   │   ├── base.py                  # LLMProvider ABC — all providers implement this
-│   │   ├── claude.py                # ClaudeProvider
-│   │   ├── openai.py                # OpenAIProvider
-│   │   └── gemini.py                # GeminiProvider
+│   │   ├── LLMProvider.py           # LLMProvider ABC
+│   │   ├── ClaudeProvider.py        # ClaudeProvider (claude-sonnet-4-5)
+│   │   ├── OpenAIProvider.py        # OpenAIProvider (gpt-4o)
+│   │   └── GeminiProvider.py        # GeminiProvider (gemini-2.5-flash)
 │   │
 │   ├── llm_components/              # LLM-powered pipeline stages
 │   │   ├── __init__.py
-│   │   ├── file_selection.py        # FileSelectionAssistant
-│   │   └── synthesis.py             # SynthesisLayer
+│   │   └── synthesis.py             # SynthesisLayer (blind evaluation)
 │   │
 │   ├── repo/                        # Repo Manager
 │   │   ├── __init__.py
-│   │   ├── manager.py               # RepoManager — snapshots, patches, cleanup
-│   │   ├── scanner.py               # file tree scanning and signature extraction
-│   │   └── detector.py              # project type detection
+│   │   ├── RepoManager.py           # RepoManager — snapshots, patches, cleanup
+│   │   └── ProjectTypeDetector.py   # project type detection
 │   │
 │   ├── docker/                      # Docker Executor
 │   │   ├── __init__.py
 │   │   ├── executor.py              # DockerExecutor
-│   │   └── parsers.py               # per-project test output parsers
+│   │   └── parsers.py               # generic test output parser
 │   │
-│   ├── tokens/                      # Token Counter
-│   │   ├── __init__.py
-│   │   └── counter.py               # TokenCounter
-│   │
-│   └── renderer/                    # Results Renderer
-│       ├── __init__.py
-│       └── renderer.py              # terminal output formatting
+│   └── (no tokens/ or renderer/ modules — functionality is inline)
 │
 └── tests/
-    ├── test_providers.py
-    ├── test_repo_manager.py
-    ├── test_docker_executor.py
-    ├── test_llm_components.py
-    └── test_orchestrator.py
+    └── ProviderTests/               # test fixtures (Node.js project)
 ```
 
 ---
@@ -81,17 +68,19 @@ Every component communicates through typed dataclasses defined in `models.py`.
 No shared mutable state. Data flows forward only — never backwards.
 
 ```
-Developer CLI input (interactive prompt — NOT flags for question)
+Developer CLI input
+    → repo scan (ProjectTypeDetector)
+    → interactive question prompt
+    → manual file selection (with filename resolution)
     → QueryRequest
-    → FileSelectionResult      (FileSelectionAssistant — hard gate, dev must confirm)
-    → TokenEstimate            (TokenCounter — dev confirms cost before proceeding)
+    → cost estimate (Orchestrator.estimate_cost_of_query)
+    → developer confirms cost
     → LLMRequest × N          (one per selected provider)
     → LLMResponse × N         (parallel async, return_exceptions=True)
     → RepoSnapshot × N        (RepoManager — full repo copy + patch applied)
-    → ExecutionResult × N     (DockerExecutor — parallel async)
-    → SynthesisResult         (SynthesisLayer — single LLM call)
-    → FinalResult             (assembled by Orchestrator)
-    → terminal output         (ResultsRenderer)
+    → ExecutionResult × N     (DockerExecutor — parallel async, test output parsed)
+    → SynthesisResult         (SynthesisLayer — blind single LLM call)
+    → terminal output         (inline in cli.py)
 ```
 
 ---
@@ -112,103 +101,54 @@ Second fan-out: Docker execution (all containers spin up simultaneously).
 Both use `return_exceptions=True` so one failure never blocks the rest.
 
 **One retry per provider, then partial results.**
-If a provider fails or times out (60s limit), it retries once.
+If a provider fails or times out, it retries once with a 2-second pause.
 If the retry also fails, that provider is marked failed and excluded from results.
 The pipeline continues with whatever providers succeeded — no total cancellation.
 
-**Hard confirmation gate after file selection.**
-Nothing proceeds — no tokens sent, no cost incurred — until the developer
-explicitly confirms the file selection. This gate cannot be bypassed in MVP.
+**File selection is manual with smart filename resolution.**
+Developer enters filenames or relative paths. If a filename has one match in the
+repo, it auto-resolves. If multiple matches exist, the developer picks from a
+numbered list. Maximum 5 files per query.
 
-**File Selection Assistant uses signatures, not file names or full contents.**
-Generic file names (Manager.java, Handler.java) provide no signal.
-Full file contents are too expensive at the pre-confirmation stage.
-Signatures (class name, method signatures, package path, implements/extends)
-give the LLM real structural context at ~15-30 lines per file.
+**LLMs can create new files — not just modify existing ones.**
+Patch application uses `os.makedirs(exist_ok=True)` and writes to any path
+within the snapshot, not just existing files.
 
 **Docker containers are fully configured by PolyForge — developer touches nothing.**
 Project type is auto-detected from manifest files (pom.xml, package.json, etc).
-Base image, build command, and test parser are selected from hardcoded profiles.
-Containers have no network access, 2GB RAM limit, 2 CPU limit, 120s timeout.
+Base image and build command are selected from hardcoded profiles.
+Containers have resource limits and network restrictions.
 
-**The File Selection Assistant and Synthesis Layer are NOT agents.**
-They are single LLM calls with focused prompts. No loops, no tool use.
-The only true agent is the Execution Feedback Loop planned for v2.0.
+**Synthesis Layer uses blind evaluation.**
+Provider responses are labeled with anonymous keys (Solution A, Solution B, etc.)
+so the evaluating LLM cannot be biased by provider identity. The Orchestrator
+maps keys back to provider names after synthesis returns.
 
----
+**Internal LLM components are provider-agnostic.**
+The Synthesis Layer uses whichever provider the user has configured,
+with a preference order: Claude → GPT-4o → Gemini.
 
-## Decisions Made (Design Session Log)
-
-These decisions were made during pre-dev design review and override anything
-in the requirements or architecture docs that conflicts. Claude Code should
-treat these as authoritative.
-
-### 1. LLMs can create new files — not just modify existing ones
-The architecture doc's `apply_patch` method originally had an
-`if os.path.exists(target)` guard that would silently skip new files.
-**Remove this guard.** LLMs should be free to create new files (new test files,
-utility classes, config files, etc.) within the snapshot. Use `os.makedirs`
-on the parent directory before writing to handle new nested paths.
-
-```python
-# CORRECT — allow new file creation
-def apply_patch(snapshot: RepoSnapshot, response: LLMResponse) -> PatchResult:
-    for filename, new_content in response.modified_files.items():
-        target = os.path.join(snapshot.snapshot_path, filename)
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        with open(target, 'w') as f:
-            f.write(new_content)
-    diff = generate_diff(snapshot)
-    return PatchResult(diff=diff, ...)
-```
-
-### 2. File Selection Assistant and Synthesis Layer are provider-agnostic
-The architecture doc hardcodes Claude Sonnet for both internal LLM components.
-**Do not hardcode a provider.** Instead, use whichever provider the user has
-a key configured for, with a preference order:
-
-```
-Claude → GPT-4o → Gemini
-```
-
-If the user only has an OpenAI key, the File Selection Assistant and Synthesis
-Layer use GPT-4o. If they only have a Gemini key, those components use Gemini.
-The user should never be locked out of the tool because they lack a specific
-provider's key.
-
-### 3. The question is an interactive prompt — not a CLI flag
-The developer's question is collected via an interactive prompt in the terminal,
-not via a `--question` CLI flag. The CLI flags are for configuration
-(`--repo <path>`, `--models claude,gpt4o`, `--manual-select`, etc.)
-but the question itself is typed interactively after file selection is confirmed.
-
-### 4. Token counting uses tiktoken across all providers (MVP)
-For MVP, use tiktoken (cl100k_base encoding) as a rough estimate for all three
-providers. This is not perfectly accurate for Gemini or Claude but is close
-enough for cost estimation purposes. Per-provider tokenizers can be added in
-a future version if accuracy becomes an issue.
-
-### 5. Node.js is the primary dogfood target
-The first real-world testing will be against Node.js projects. This means:
-- The Node container profile (`node:20-alpine`, `npm ci && npm test`) should
-  be the most thoroughly tested
-- The Jest output parser should handle common edge cases robustly
-- The JS/TS signature extractor should be built and tested first
-- Other project types (Maven, Python, etc.) can be more bare-bones initially
-
-### 6. Tests come after working MVP
-Do not write tests during initial implementation. Focus on getting a working
-end-to-end pipeline first. Tests will be backfilled once the MVP is functional.
-This means: do not create test files, do not write pytest fixtures, do not
-set up test infrastructure until explicitly asked to.
+**Test output parsing is generic, not per-framework.**
+A single regex-based parser extracts pass/fail/error counts from any test
+runner output. Uses `max()` instead of `sum()` to avoid double-counting
+when subtotals appear before final totals.
 
 ---
 
 ## All Dataclasses (models.py)
 
-These are the exact shapes. Do not change field names without updating all consumers.
+These are the exact shapes as implemented.
 
 ```python
+class PolyForgeError(Exception): ...
+class UnknownProjectTypeError(PolyForgeError): ...
+class NoTestCommandError(PolyForgeError): ...
+
+class SolutionKey(Enum):
+    SOLUTION_A = "Solution A"
+    SOLUTION_B = "Solution B"
+    SOLUTION_C = "Solution C"
+
 @dataclass
 class QueryRequest:
     repo_path:       str
@@ -235,6 +175,7 @@ class LLMResponse:
     modified_files:  dict[str, str] # { filename: new_content }
     input_tokens:    int
     output_tokens:   int
+    cost:            float          # calculated cost in USD
     latency_ms:      int
     error:           str | None
     retry_attempted: bool
@@ -265,11 +206,13 @@ class ExecutionResult:
 
 @dataclass
 class SynthesisResult:
-    recommended_provider: str | None  # None if all solutions failed
+    recommended_provider: str | None
     justification:        str
     quality_warnings:     list[str]
     failure_analysis:     str | None
     closest_provider:     str | None
+    solution_rankings:    list[str]   # ordered best to worst
+    synthesis_cost:       float       # cost of the synthesis LLM call
 
 @dataclass
 class FinalResult:
@@ -282,32 +225,74 @@ class FinalResult:
     estimated_cost:    float
     actual_cost:       float
     total_duration_ms: int
+
+@dataclass
+class FileSelectionResult:
+    selected_files:  list[str]
+    rationales:      dict[str, str]
+    token_estimates: dict[str, int]
+
+@dataclass
+class TokenEstimate:
+    total_tokens:         int
+    file_token_counts:    dict[str, int]
+    per_model_cost:       dict[str, float]
+    total_estimated_cost: float
+
+@dataclass
+class PatchResult:
+    provider:       str
+    snapshot_path:  str
+    diff:           str
+    files_modified: list[str]
+    files_created:  list[str]
 ```
 
 ---
 
 ## LLM Provider Layer
 
-All providers implement this ABC in `providers/base.py`:
+All providers implement this ABC in `providers/LLMProvider.py`:
 
 ```python
 class LLMProvider(ABC):
     @abstractmethod
-    async def query(self, request: LLMRequest) -> LLMResponse: ...
+    async def query_llm(self, request: LLMRequest) -> LLMResponse: ...
 
     @abstractmethod
-    def count_tokens(self, text: str) -> int: ...
+    async def estimate_cost_of_request(self, request: LLMRequest) -> float: ...
 
     @abstractmethod
-    def estimate_cost(self, input_tokens: int, output_tokens: int) -> float: ...
+    def calculate_cost_of_response(self, input_tokens: int, output_tokens: int) -> float: ...
 ```
 
-Retry and timeout logic lives inside each provider, not the Orchestrator:
-- 60 second timeout per attempt
-- One retry on failure with a 2 second pause
-- Returns LLMResponse(success=False) on second failure — never raises
+### Provider Implementations
 
-All providers use this structured output system prompt:
+| Provider | File | Model | SDK | Input Cost | Output Cost |
+|----------|------|-------|-----|-----------|-------------|
+| Claude | `ClaudeProvider.py` | `claude-sonnet-4-5` | `anthropic` (AsyncAnthropic) | $0.000003/token | $0.000015/token |
+| OpenAI | `OpenAIProvider.py` | `gpt-4o` | `openai` (AsyncOpenAI) | $0.0000025/token | $0.000010/token |
+| Gemini | `GeminiProvider.py` | `gemini-2.5-flash` | `google-genai` (genai.Client) | $0.0000001/token | $0.0000004/token |
+
+### Retry & Timeout Logic
+
+Each provider implements retry logic internally (not in the Orchestrator):
+- Configurable timeout per attempt (default: 150s via config)
+- One retry on failure with a 2-second pause
+- Returns `LLMResponse(success=False)` on second failure — never raises
+
+### Token Counting
+
+All providers use tiktoken for cost estimation:
+- Claude: `tiktoken.get_encoding("cl100k_base")`
+- OpenAI: `tiktoken.encoding_for_model("gpt-4o")`
+- Gemini: `tiktoken.get_encoding("cl100k_base")`
+
+Estimated max output tokens: 8192 for all providers.
+
+### Structured Output Prompt
+
+All providers receive the same system prompt (defined in `config.py`):
 
 ```
 You are a code assistant. The user will provide source files and a question.
@@ -326,29 +311,49 @@ Only include files you actually modified. Do not include unchanged files.
 You MAY create new files if your solution requires them.
 ```
 
+### Provider Aliases
+
+The CLI and Orchestrator accept these model names:
+- `claude` → ClaudeProvider
+- `gpt4o` → OpenAIProvider
+- `openai` → OpenAIProvider
+- `chatgpt` → OpenAIProvider
+- `gemini` → GeminiProvider
+
 ---
 
 ## Docker Container Profiles
 
-Project type is detected by scanning repo root for manifest files in this priority order:
+Project type is detected by `ProjectTypeDetector` scanning repo root for manifest
+files in this priority order:
 `pom.xml` → maven, `build.gradle` → gradle, `package.json` → node,
 `requirements.txt` → python, `pyproject.toml` → python, `Cargo.toml` → rust
 
-Each type maps to a hardcoded profile:
+Each type maps to a hardcoded profile in `docker/executor.py`:
 
-| Type   | Image                    | Command                                    | Priority |
-|--------|--------------------------|--------------------------------------------|----------|
-| maven  | maven:3.9-openjdk-17     | mvn test -B                                | Standard |
-| gradle | gradle:8-jdk17           | gradle test --no-daemon                    | Standard |
-| node   | node:20-alpine           | npm ci && npm test                         | **PRIMARY — test first** |
-| python | python:3.11-slim         | pip install -r requirements.txt -q && pytest | Standard |
-| rust   | rust:1.75-slim           | cargo test                                 | Standard |
+| Type   | Image                    | Command                                    |
+|--------|--------------------------|---------------------------------------------|
+| node   | node:20-alpine           | npm ci && npm test                          |
+| python | python:3.11-slim         | pip install -r requirements.txt -q && pytest |
+| maven  | maven:3.9-openjdk-17     | mvn test -B                                 |
+| gradle | gradle:8-jdk17           | gradle test --no-daemon                     |
+| rust   | rust:1.75-slim           | cargo test                                  |
 
-All containers: network_disabled=True, mem_limit=2g, nano_cpus=2_000_000_000,
-auto_remove=False (logs captured before removal), timeout=120s.
+Container configuration (from `PolyForgeConfig`):
+- `mem_limit`: configurable (default "2g")
+- `nano_cpus`: configurable (default 2 cores × 1,000,000,000)
+- `network_disabled`: False (NOTE: should be True per security spec)
+- `working_dir`: /workspace
+- `auto_remove`: False (logs captured before manual removal)
+- `timeout`: configurable (default 120s), enforced via polling loop
 
-**Node.js is the primary test target.** The Jest output parser and Node container
-profile should be the most robust. Other project types can be more minimal initially.
+### Test Output Parsing
+
+`docker/parsers.py` provides a generic `parse_test_output(stdout, stderr)` function:
+- Regex patterns match `<N> passed`, `<N> failed`, `<N> error(s/ed)` (case-insensitive)
+- Returns `TestCounts(passed, failed, errored)` dataclass
+- Uses `max()` of all matches (not sum) to avoid double-counting subtotals
+- Works across Jest, pytest, Maven Surefire, cargo test, etc.
 
 ---
 
@@ -359,10 +364,8 @@ profile should be the most robust. Other project types can be more minimal initi
 ├── config.toml                      # user configuration
 └── workspaces/
     └── <query_id>/                  # one per query, cleaned up after results
-        ├── snapshot_claude/         # full repo + claude's changes applied
-        ├── snapshot_gpt4o/          # full repo + gpt's changes applied
-        ├── snapshot_gemini/         # full repo + gemini's changes applied
-        └── meta.json                # query metadata and timestamps
+        ├── snapshot_<provider>/      # full repo + provider's changes applied
+        └── (meta.json not implemented)
 ```
 
 ---
@@ -371,7 +374,7 @@ profile should be the most robust. Other project types can be more minimal initi
 
 ```toml
 [execution]
-llm_timeout_seconds     = 60
+llm_timeout_seconds     = 150
 docker_timeout_seconds  = 120
 max_files               = 5
 cost_warning_threshold  = 0.50
@@ -402,78 +405,114 @@ API keys are read from environment variables only — never from config file:
 
 ---
 
-## CLI Interaction Model
+## CLI Interface
 
-The CLI is **interactive**, not purely flag-driven. The developer's question
-is entered via an interactive prompt, not a `--question` flag.
+The CLI is built with Typer. The developer's question is entered via an
+interactive prompt, not a `--question` flag.
 
-### CLI Flags (configuration only)
+### CLI Flags
 ```bash
-polyforge --repo <path>              # required: path to local repository
-polyforge --repo <path> --models claude,gpt4o   # optional: pre-select models
-polyforge --repo <path> --manual-select         # skip file selection assistant
+polyforge --repo <path>                              # required: path to local repository
+polyforge --repo <path> --models claude,gpt4o        # optional: select specific models (default: claude,gpt4o,gemini)
+polyforge --repo <path> --verbose                    # optional: show Docker stdout/stderr output
+polyforge --repo <path> -v                           # short form of --verbose
 ```
 
 ### Interactive Flow
 ```
 $ polyforge --repo ./my-project
 
-[PolyForge] Scanning repository...
-[PolyForge] Detected project type: node (package.json)
+[PolyForge] Scanning repository: ./my-project
+Your repo is of type node
 
 What is your question?
 > Why are my API tests failing with a 401 error?
 
-[File Selection Assistant running...]
+[PolyForge] Input up to 5 files that relate to your question
+  You can enter filenames (e.g. auth.js) or relative paths (e.g. src/auth.js)
 
-┌─────────────────────────────────────────────────────────┐
-│ Suggested Files                                         │
-│                                                         │
-│  ✓ src/middleware/auth.js                               │
-│    → Handles JWT validation for API routes              │
-│    → ~1,200 tokens                                      │
-│                                                         │
-│  ✓ tests/api/auth.test.js                               │
-│    → Test suite for authentication endpoints            │
-│    → ~800 tokens                                        │
-│                                                         │
-│  [a] Add file  [r] Remove file  [m] Select manually     │
-│                                                         │
-│  Selected models: Claude ✓  GPT-4o ✓  Gemini ✗          │
-│  Total tokens: ~2,000                                   │
-│  Estimated cost: ~$0.03                                 │
-│                                                         │
-│  Confirm these files? (yes/no): _                       │
-└─────────────────────────────────────────────────────────┘
+Enter file names (comma separated): auth.js, auth.test.js
+  Resolved 'auth.js' → src/middleware/auth.js
+  Resolved 'auth.test.js' → tests/api/auth.test.js
+
+The price of your query is estimated to be 0.12
+Is this acceptable? [y/N]: y
+
+[PolyForge] Sending to models...
+[PolyForge] Using claude for synthesis layer
+
+--- claude (LLM) ---
+  Success: True
+  Latency: 3200ms
+  Cost: $0.0450
+
+--- gpt4o (LLM) ---
+  ...
+
+--- claude (Docker) ---
+  Success: True
+  Exit code: 0
+  Runtime: 15200ms
+  Timed out: False
+
+--- Synthesis ---
+  Recommended: claude
+  Justification: ...
+  Rankings: claude > gpt4o > gemini
+
+[PolyForge] Done.
 ```
+
+### File Resolution
+
+Users can enter just a filename instead of the full relative path:
+- If the filename matches exactly one file in the repo → auto-resolved
+- If multiple matches → numbered list, user picks
+- If no matches → skipped with error message
+- Full relative paths still work directly
 
 ---
 
-## Internal LLM Component Provider Selection
+## Synthesis Layer (Blind Evaluation)
 
-The File Selection Assistant and Synthesis Layer need an LLM provider but
-should NOT require a specific one. Use the first available provider from
-the user's configured API keys in this preference order:
+The Synthesis Layer (`llm_components/synthesis.py`) performs blind evaluation:
+
+1. Each provider's response is labeled with an anonymous key (Solution A/B/C)
+2. The synthesis LLM sees modified files + test results but NOT which provider produced them
+3. Response is parsed and blind keys are mapped back to provider names
+4. Returns `SynthesisResult` with recommendation, justification, rankings, and warnings
+
+The synthesis provider is selected using the internal preference order:
+Claude → GPT-4o → Gemini (whichever the user has configured).
+
+---
+
+## Orchestrator
+
+The Orchestrator (`Orchestrator.py`) coordinates the full pipeline:
 
 ```python
-INTERNAL_PROVIDER_PREFERENCE = ['claude', 'gpt4o', 'gemini']
-
-def get_internal_provider(configured_providers: dict[str, LLMProvider]) -> LLMProvider:
-    """Return the best available provider for internal LLM components."""
-    for name in INTERNAL_PROVIDER_PREFERENCE:
-        if name in configured_providers:
-            return configured_providers[name]
-    raise PolyForgeError(
-        "No LLM provider configured. "
-        "Set at least one API key: ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY"
-    )
+class Orchestrator:
+    def __init__(self, query_request, config, project_type): ...
+    async def run(self) -> tuple[list[LLMResponse], list[ExecutionResult], SynthesisResult]: ...
+    async def estimate_cost_of_query(self) -> float: ...
+    def get_synthesis_provider_name(self) -> str: ...
 ```
 
-This ensures the tool works for users who only have one or two provider keys.
+Pipeline execution sequence:
+1. Build LLM requests (one per selected model)
+2. Fan-out: query all providers in parallel (`asyncio.gather`)
+3. Filter successful responses
+4. Create repo snapshots + apply patches for each successful response
+5. Fan-out: run Docker containers in parallel (`asyncio.gather`)
+6. Filter valid execution results
+7. Run Synthesis Layer (blind evaluation)
+8. Return results
+9. Cleanup workspaces (in `finally` block)
 
 ---
 
-## Build and Test
+## Build and Run
 
 ```bash
 # Install in editable mode
@@ -482,40 +521,12 @@ pip install -e .
 # Run the tool
 polyforge --repo /path/to/project
 
-# Run all tests (AFTER MVP is working — not during initial build)
-pytest
+# Run with verbose Docker output
+polyforge --repo /path/to/project --verbose
 
-# Run with coverage
-pytest --cov=polyforge tests/
+# Run with specific models
+polyforge --repo /path/to/project --models claude,gpt4o
 ```
-
-**Testing strategy: MVP first, tests after.**
-Do not write tests during initial implementation. Focus on getting an end-to-end
-working pipeline. Tests will be backfilled once the MVP is functional and
-manually validated.
-
----
-
-## Implementation Order (Recommended)
-
-Build components in this order — each layer depends on the one before it:
-
-1. `models.py` — all dataclasses, no dependencies
-2. `config.py` — config loading, no dependencies  
-3. `providers/base.py` — LLMProvider ABC
-4. `providers/claude.py` — first provider implementation
-5. `tokens/counter.py` — token counting and cost estimation (tiktoken cl100k_base for all providers)
-6. `repo/detector.py` — project type detection
-7. `repo/scanner.py` — file tree scanning and signature extraction (**prioritize JS/TS signatures**)
-8. `repo/manager.py` — snapshot creation, patch application (with new file creation support), cleanup
-9. `docker/parsers.py` — per-project test output parsers (**prioritize Jest parser**)
-10. `docker/executor.py` — container lifecycle management
-11. `providers/openai.py` and `providers/gemini.py` — remaining providers
-12. `llm_components/file_selection.py` — FileSelectionAssistant (uses `get_internal_provider`, not hardcoded Claude)
-13. `llm_components/synthesis.py` — SynthesisLayer (uses `get_internal_provider`, not hardcoded Claude)
-14. `orchestrator.py` — pipeline coordinator wiring everything together
-15. `renderer/renderer.py` — terminal output formatting
-16. `cli.py` — Typer CLI entry point with interactive question prompt
 
 ---
 
@@ -527,14 +538,12 @@ Build components in this order — each layer depends on the one before it:
 - **Always use `return_exceptions=True`** in asyncio.gather() calls.
 - **Always clean up** Docker containers and workspace snapshots after results are collected,
   even if an exception occurs — use try/finally blocks.
-- **The hard confirmation gate cannot be bypassed.** Developer must confirm files
-  before any provider is queried.
-- **Containers must have network_disabled=True.** This is a security constraint,
+- **Containers should have network_disabled=True.** This is a security constraint,
   not a configuration option.
 - **Never raise from a provider.** Return LLMResponse(success=False, error=...) instead.
 - **LLMs can create new files** — patch application must use `os.makedirs(exist_ok=True)`
   and write to any path within the snapshot, not just existing files.
-- **Internal LLM components (File Selection, Synthesis) must not hardcode a provider.**
+- **Internal LLM components must not hardcode a provider.**
   Use the preference order: Claude → GPT-4o → Gemini, falling back to whatever key
   the user has configured.
 
@@ -558,20 +567,19 @@ MOCK_RESPONSE = {
 }
 ```
 
-Use real providers only when specifically testing LLM integration.
-Switch to Claude Haiku (not Sonnet) for integration tests — ~10x cheaper.
-
 ---
 
 ## Roadmap Context
 
-**MVP (current):** Core pipeline, 3 providers, Docker execution,
-FileSelectionAssistant, SynthesisLayer, CLI interface.
+**MVP v1.0 (current — complete):** Core pipeline, 3 providers, Docker execution,
+manual file selection with filename resolution, SynthesisLayer, CLI interface with
+`--verbose` flag, generic test output parsing.
 
-**v1.5:** Web UI, Git URL support, additional providers (Mistral, DeepSeek, Groq).
+**v1.5:** Web UI, Git URL support, File Selection Assistant (LLM-driven file
+suggestion with signature extraction), dedicated Results Renderer module,
+additional providers (Mistral, DeepSeek, Groq).
 
 **v2.0:** Execution Feedback Loop Agent — each LLM iterates on its own solution
 using Docker test output as feedback. Max 3 iterations, configurable cost ceiling.
-This is the only true agent in the system.
 
 **v2.5+:** VS Code extension, VM execution support, team/org mode.

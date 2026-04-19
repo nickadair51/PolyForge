@@ -9,10 +9,50 @@ from polyforge.Orchestrator import Orchestrator
 app = typer.Typer()
 SUPPORTED_MODELS = ["claude", "gpt4o", "openai", "chatgpt", "gemini"]
 
+
+def _resolve_file(repo_path: Path, raw_input: str) -> Path | None:
+    """Resolve a filename or relative path to a valid path within the repo.
+
+    If the input is already a valid relative path, return it directly.
+    If it's just a filename, search the repo. One match → return it.
+    Multiple matches → prompt the user to pick. No matches → return None.
+    """
+    candidate = Path(raw_input)
+    if (repo_path / candidate).is_file():
+        return candidate
+
+    filename = candidate.name
+    matches = [
+        p.relative_to(repo_path)
+        for p in repo_path.rglob(filename)
+        if p.is_file()
+    ]
+
+    if len(matches) == 0:
+        typer.secho(f"  No file named '{raw_input}' found in repo. Skipping.", fg=typer.colors.RED)
+        return None
+    if len(matches) == 1:
+        typer.secho(f"  Resolved '{raw_input}' → {matches[0]}", fg=typer.colors.GREEN)
+        return matches[0]
+
+    typer.secho(f"  Multiple matches for '{raw_input}':", fg=typer.colors.YELLOW)
+    for i, m in enumerate(matches, 1):
+        typer.echo(f"    [{i}] {m}")
+    choice = typer.prompt("  Pick a number")
+    try:
+        idx = int(choice) - 1
+        if 0 <= idx < len(matches):
+            return matches[idx]
+    except ValueError:
+        pass
+    typer.secho("  Invalid selection. Skipping.", fg=typer.colors.RED)
+    return None
+
 @app.command()
 def run(
       repo: str = typer.Option(..., help="Path to local repository"),
-      models: str = typer.Option("claude,gpt4o,gemini", help="Comma-separated list of models")
+      models: str = typer.Option("claude,gpt4o,gemini", help="Comma-separated list of models"),
+      verbose: bool = typer.Option(False, "--verbose", "-v", help="Show full Docker stdout/stderr output")
   ):
     if not os.path.isdir(repo):
         typer.secho(f"Error: '{repo}' is not a valid directory.", fg=typer.colors.RED, bold=True, err=True)
@@ -38,16 +78,29 @@ def run(
     question = typer.prompt("What is your question?")
 
     typer.echo()
-    typer.secho("[PolyForge] Input up to 5 files (relative path) that relate to your question", fg=typer.colors.YELLOW)
+    typer.secho("[PolyForge] Input up to 5 files that relate to your question", fg=typer.colors.YELLOW)
+    typer.secho("  You can enter filenames (e.g. auth.js) or relative paths (e.g. src/auth.js)", fg=typer.colors.YELLOW)
     typer.echo()
 
-    file_input = typer.prompt("Enter file (must be full file path) names (comma separated)")
-    selected_files = [Path(f.strip()) for f in file_input.split(",")]
+    file_input = typer.prompt("Enter file names (comma separated)")
+    selected_files = []
+    for raw in file_input.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        resolved = _resolve_file(repo_path, raw)
+        if resolved:
+            selected_files.append(resolved)
+
+    if len(selected_files) == 0:
+        typer.secho("Error: No valid files selected.", fg=typer.colors.RED, bold=True, err=True)
+        raise typer.Exit(code=1)
+
     if len(selected_files) > config.execution.max_files:
-        typer.secho(f"Error: At the time being, PolyForge only accepts 5"
+        typer.secho(f"Error: PolyForge only accepts {config.execution.max_files} "
                     "files to minimize costs. Removing the following files from selection:\n", fg=typer.colors.RED, bold=True, err=True)
         for file_to_be_removed in selected_files[5:]:
-            typer.secho(file_to_be_removed)
+            typer.secho(f"  {file_to_be_removed}")
         selected_files = selected_files[:5]
 
     query_request = QueryRequest(
@@ -66,8 +119,9 @@ def run(
 
     typer.echo()
     typer.secho("[PolyForge] Sending to models...", fg=typer.colors.CYAN)
+    typer.secho(f"[PolyForge] Using {orchestrator.get_synthesis_provider_name()} for synthesis layer", fg=typer.colors.CYAN)
 
-    llm_responses, exec_results = asyncio.run(orchestrator.run())
+    llm_responses, exec_results, synthesis = asyncio.run(orchestrator.run())
 
     typer.echo()
     for resp in llm_responses:
@@ -86,10 +140,25 @@ def run(
         typer.echo(f"  Timed out: {result.timed_out}")
         if result.error:
             typer.secho(f"  Error: {result.error}", fg=typer.colors.RED)
-        if result.stdout:
-            typer.echo(f"  Stdout:\n{result.stdout[:2000]}")
-        if result.stderr:
-            typer.echo(f"  Stderr:\n{result.stderr[:2000]}")
+        if verbose:
+            if result.stdout:
+                typer.echo(f"  Stdout:\n{result.stdout[:2000]}")
+            if result.stderr:
+                typer.echo(f"  Stderr:\n{result.stderr[:2000]}")
+
+    typer.echo()
+    typer.secho("--- Synthesis ---", fg=typer.colors.YELLOW, bold=True)
+    if synthesis.recommended_provider:
+        typer.echo(f"  Recommended: {synthesis.recommended_provider}")
+    typer.echo(f"  Justification: {synthesis.justification}")
+    if synthesis.solution_rankings:
+        typer.echo(f"  Rankings: {' > '.join(synthesis.solution_rankings)}")
+    if synthesis.quality_warnings:
+        for w in synthesis.quality_warnings:
+            typer.secho(f"  Warning: {w}", fg=typer.colors.YELLOW)
+    if synthesis.failure_analysis:
+        typer.secho(f"  Failure analysis: {synthesis.failure_analysis}", fg=typer.colors.RED)
+    typer.echo(f"  Synthesis cost: ${synthesis.synthesis_cost:.4f}")
 
     typer.echo()
     typer.secho("[PolyForge] Done.", fg=typer.colors.GREEN, bold=True)

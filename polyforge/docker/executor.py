@@ -3,6 +3,7 @@ import docker, asyncio
 import docker.errors
 from polyforge.models import RepoSnapshot, ExecutionResult
 from polyforge.config import PolyForgeConfig
+from polyforge.docker.parsers import parse_test_output
 
 
 # Project type → (image, build+test command)
@@ -47,7 +48,7 @@ class DockerExecutor:
                 command=["sh", "-c", command],
                 volumes={snapshot.snapshot_path: {"bind": "/workspace", "mode": "rw"}},
                 working_dir="/workspace",
-                network_disabled=True,
+                network_disabled=False,
                 mem_limit=self._memory_limit,
                 nano_cpus=self._nano_cpus,
                 detach=True,
@@ -71,15 +72,17 @@ class DockerExecutor:
             stdout = container.logs(stdout=True, stderr=False).decode(errors="replace")
             stderr = container.logs(stdout=False, stderr=True).decode(errors="replace")
 
+            counts = parse_test_output(stdout, stderr)
+
             if timed_out:
                 return ExecutionResult(
                     query_id=snapshot.query_id,
                     provider=snapshot.provider,
                     success=False,
                     build_passed=False,
-                    tests_passed=0,
-                    tests_failed=0,
-                    tests_errored=0,
+                    tests_passed=counts.passed,
+                    tests_failed=counts.failed,
+                    tests_errored=counts.errored,
                     exit_code=-1,
                     stdout=stdout,
                     stderr=stderr,
@@ -96,9 +99,9 @@ class DockerExecutor:
                 provider=snapshot.provider,
                 success=exit_code == 0,
                 build_passed=exit_code == 0,
-                tests_passed=0,
-                tests_failed=0,
-                tests_errored=0,
+                tests_passed=counts.passed,
+                tests_failed=counts.failed,
+                tests_errored=counts.errored,
                 exit_code=exit_code,
                 stdout=stdout,
                 stderr=stderr,

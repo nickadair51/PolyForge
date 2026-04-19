@@ -1,9 +1,15 @@
-from polyforge.models import QueryRequest, LLMRequest, LLMResponse, RepoSnapshot, ExecutionResult
+from polyforge import models
+from polyforge.models import (
+    QueryRequest, LLMRequest, LLMResponse, RepoSnapshot,
+    ExecutionResult, SynthesisResult, FinalResult,
+)
 from polyforge.providers.ClaudeProvider import ClaudeProvider
 from polyforge.providers.OpenAIProvider import OpenAIProvider
 from polyforge.providers.GeminiProvider import GeminiProvider
 from polyforge.repo.RepoManager import RepoManager
 from polyforge.docker.executor import DockerExecutor
+from polyforge.llm_components.synthesis import SynthesisLayer
+from polyforge.providers.LLMProvider import LLMProvider
 from polyforge.config import SYSTEM_PROMPT, PolyForgeConfig
 from pathlib import Path
 import asyncio
@@ -15,6 +21,8 @@ PROVIDER_MAP = {
       "chatgpt": OpenAIProvider,
       "openai": OpenAIProvider
   }
+
+INTERNAL_PROVIDER_PREFERENCE = ["claude", "gpt4o", "gemini"]
 
 class Orchestrator:
     def __init__(self, query_request: QueryRequest, config: PolyForgeConfig, project_type: str):
@@ -33,7 +41,7 @@ class Orchestrator:
         self._docker_executor = DockerExecutor(config)
         self._create_llm_requests()
     
-    async def run(self) -> tuple[list[LLMResponse], list[ExecutionResult]]:
+    async def run(self) -> tuple[list[LLMResponse], list[ExecutionResult], SynthesisResult]:
         try:
             # Fan-out: query all providers in parallel
             responses: list[LLMResponse] = await asyncio.gather(*[
@@ -67,10 +75,17 @@ class Orchestrator:
             # Filter out any exceptions from gather
             exec_results = [r for r in execution_results if isinstance(r, ExecutionResult)]
 
-            # TODO: Synthesis layer
-            # TODO: Assemble and return FinalResult
+            # Synthesis — blind evaluation of all solutions
+            _, synthesis_provider = self._get_internal_provider()
+            synthesis_layer = SynthesisLayer(synthesis_provider)
+            synthesis_result, _ = await synthesis_layer.synthesize(
+                question=self._query_request.question,
+                llm_responses=successful,
+                execution_results=exec_results,
+                query_id=self._query_request.query_id,
+            )
 
-            return llm_responses, exec_results
+            return llm_responses, exec_results, synthesis_result
 
         finally:
             self._repo_manager.cleanup()
@@ -93,6 +108,21 @@ class Orchestrator:
                     question=self._query_request.question
                 )
     
+    def get_synthesis_provider_name(self) -> str:
+        """Return the name of the provider that will be used for synthesis."""
+        name, _ = self._get_internal_provider()
+        return name
+
+    def _get_internal_provider(self) -> tuple[str, LLMProvider]:
+        """Return the best available provider for internal LLM components."""
+        for name in INTERNAL_PROVIDER_PREFERENCE:
+            if name in self._providers:
+                return name, self._providers[name]
+        raise models.PolyForgeError(
+            "No LLM provider configured. "
+            "Set at least one API key: ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY"
+        )
+
     def _gather_file_contents(self) -> dict[str,str]:
         file_contents = {}
         for file_path in self._query_request.selected_files:
