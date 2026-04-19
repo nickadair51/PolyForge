@@ -76,8 +76,7 @@ class Orchestrator:
             exec_results = [r for r in execution_results if isinstance(r, ExecutionResult)]
 
             # Synthesis — blind evaluation of all solutions
-            synthesis_provider_name, synthesis_provider = self._get_internal_provider()
-            print(f"[PolyForge] Using {synthesis_provider_name} for synthesis layer")
+            _, synthesis_provider = self._get_internal_provider()
             synthesis_layer = SynthesisLayer(synthesis_provider)
             synthesis_result, _ = await synthesis_layer.synthesize(
                 question=self._query_request.question,
@@ -109,6 +108,11 @@ class Orchestrator:
                     question=self._query_request.question
                 )
     
+    def get_synthesis_provider_name(self) -> str:
+        """Return the name of the provider that will be used for synthesis."""
+        name, _ = self._get_internal_provider()
+        return name
+
     def _get_internal_provider(self) -> tuple[str, LLMProvider]:
         """Return the best available provider for internal LLM components."""
         for name in INTERNAL_PROVIDER_PREFERENCE:

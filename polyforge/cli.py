@@ -67,6 +67,7 @@ def run(
 
     typer.echo()
     typer.secho("[PolyForge] Sending to models...", fg=typer.colors.CYAN)
+    typer.secho(f"[PolyForge] Using {orchestrator.get_synthesis_provider_name()} for synthesis layer", fg=typer.colors.CYAN)
 
     llm_responses, exec_results, synthesis = asyncio.run(orchestrator.run())
 
